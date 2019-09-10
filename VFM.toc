@@ -1,0 +1,8 @@
+## Interface: 11302
+## Title: VFM
+## Notes: Keep track of friend's XP
+## Author: VonCarlsson
+## Version: 0.4.0
+## SavedVariablesPerCharacter: vfmdb
+
+VFM.lua
