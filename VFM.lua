@@ -1,5 +1,5 @@
 -- Major, Minor, Patch
-local VFM_VERSION = {0, 4, 0};
+local VFM_VERSION = {0, 4, 1};
 local VFM_DEBUG = false;
 local DEFAULT_UPDATE_FREQUENCY = 60
 
@@ -142,7 +142,7 @@ local function setupdb(reset)
                 vfmdb["whitelist"][k] = {
                     ["level"] = a,
                     ["currentXP"] = b,
-                    ["timestamp"] = c,
+                    ["lastUpdated"] = c,
                     ["restedXP"] = 0,
                     ["hasAccepted"] = d,
                     ["class"] = nil
