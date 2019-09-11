@@ -1,5 +1,5 @@
 -- Major, Minor, Patch
-local VFM_VERSION = {0, 4, 1};
+local VFM_VERSION = {0, 4, 2};
 local VFM_DEBUG = false;
 local DEFAULT_UPDATE_FREQUENCY = 60
 
@@ -135,7 +135,7 @@ end
 local function setupdb(reset)
     if vfmdb == nil or reset == true then
         vfmdb = {}
-    elseif vfmdb["whitelist"] ~= nil and vfmdb["version"][1] <= 3 then
+    elseif vfmdb["whitelist"] ~= nil and vfmdb["version"][2] <= 3 then
         for k, v in pairs(vfmdb["whitelist"]) do
             if type(k) == "string" then
                 local a,b,c,d = unpack(v)
@@ -283,7 +283,7 @@ function VFMeventHandler(event, ...)
         local mxp = MAX_XP[n_lvl]
 
         -- Ignore bogus data
-        if n_lvl == 0 or n_lvl > 60 or n_cxp == nil or n_cxp > mxp or n_cxp == 0 then
+        if n_lvl == 0 or n_lvl > 60 or n_cxp > mxp or n_cxp == 0 then
             if VFM_DEBUG then
                 vfmPrint(string.format("BOGUS DATA (n_lvl=%d, n_cxp=%d, mxp=%d, n_rxp=%d)", n_lvl, n_cxp, mxp, n_rxp), "debug")
             end
