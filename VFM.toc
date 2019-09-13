@@ -2,7 +2,7 @@
 ## Title: VFM
 ## Notes: Keep track of friend's XP
 ## Author: VonCarlsson
-## Version: 0.4.2
+## Version: 0.5.1
 ## SavedVariablesPerCharacter: vfmdb
 
 VFM.lua

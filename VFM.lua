@@ -1,5 +1,5 @@
 -- Major, Minor, Patch
-local VFM_VERSION = {0, 4, 2};
+local VFM_VERSION = {0, 5, 1};
 local VFM_DEBUG = false;
 local DEFAULT_UPDATE_FREQUENCY = 60
 
@@ -26,6 +26,53 @@ local MAX_XP = {
     153900, 160400, 167100, 173900, 180800, 187900, 195000, 202300, 209800, 494000
 };
 
+-- Time related
+local SECONDS_PER_DAY   = 3600 * 24
+local SECONDS_PER_MONTH = SECONDS_PER_DAY * 365 / 12
+local SECONDS_PER_YEAR  = SECONDS_PER_MONTH * 12
+local TIME_COMPONENT_NAMES = {
+    "year", "month", "day", "hour", "minute", "second"
+}
+
+local function getDateSeconds()
+    local s = tonumber(date("%Y")) * SECONDS_PER_YEAR
+    s = s + tonumber(date("%m")) * SECONDS_PER_MONTH
+    s = s + tonumber(date("%d")) * SECONDS_PER_DAY
+
+    return s
+end
+
+local function getCurrentDateSeconds()
+    local s = tonumber(date("%H")) * 3600
+    s = s + tonumber(date("%M")) * 60
+    s = s + tonumber(date("%S"))
+
+    return s
+end
+
+local function now()
+    return getDateSeconds() + getCurrentDateSeconds()
+end
+
+local function extractTimeComponents(sec)
+    local years = math.floor(sec / SECONDS_PER_YEAR)
+    sec = sec - years * SECONDS_PER_YEAR
+
+    local months = math.floor(sec / SECONDS_PER_MONTH)
+    sec = sec - months * SECONDS_PER_MONTH
+
+    local days = math.floor(sec / SECONDS_PER_DAY)
+    sec = sec - days * SECONDS_PER_DAY
+
+    local hours = math.floor(sec / 3600)
+    sec = sec - hours * 3600
+
+    local minutes = math.floor(sec / 60)
+    local seconds = sec - minutes * 60
+
+    return { years, months, days, hours, minutes, seconds }
+end
+
 local version_check_timeout = 0;
 local last_full_update   = 0;
 local updateTimerActive  = false;
@@ -33,11 +80,33 @@ local updateTimerActive  = false;
 local frame, LoginFrame = CreateFrame("Frame"), CreateFrame("frame")
 frame:SetScript("OnEvent", function(self, event, ...) VFMeventHandler(event, ...) end);
 frame:RegisterEvent("CHAT_MSG_ADDON");
--- frame:RegisterEvent("PLAYER_XP_UPDATE");
--- frame:RegisterEvent("PLAYER_LEVEL_UP");
 
-local function dateString(str)
-    return string.format("%i-%02i-%02i %02i:%02i:%02i", str:sub(1, 4), str:sub(5, 6), str:sub(7, 8), str:sub(9, 10), str:sub(11, 12), str:sub(13, 14))
+local function createTimeString(sec)
+    local timeParts = extractTimeComponents(sec)
+
+    return ("%02i:%02i:%02i"):format(timeParts[4], timeParts[5], timeParts[6])
+end
+
+local function createReadableTimeString(sec)
+    local timeParts = extractTimeComponents(sec)
+    local str = ""
+
+    for i, val in ipairs(timeParts) do
+        if val > 0 then
+            if #str > 0 then
+                if i == #timeParts then
+                    str = str .. " and "
+                else
+                    str = str .. ", "
+                end
+            end
+
+            str = str .. val .. " " .. TIME_COMPONENT_NAMES[i] .. (val > 1 and "s" or "")
+            i = i + 1
+        end
+    end
+
+    return str
 end
 
 -- getGrayColor and getConColor are based on informatiom from
@@ -89,7 +158,7 @@ local function normalizeName(str)
     return str;
 end
 
-local function playerName(str, level, class)
+local function createPlayerNameString(str, level, class)
     if str:len() == 0 then
         return "Unknown"
     end
@@ -98,10 +167,6 @@ local function playerName(str, level, class)
     local conColor = getConColor(level)
 
     return  (conColor ~= nil and "\124cff".. conColor or "") .. level .. "\124cffffffff:" .. (class ~= nil and "\124c" .. select(4, GetClassColor(class)) or "") .. str:sub(1, 1):upper() .. str:sub(2) .. "\124cffffffff"
-end
-
-local function now()
-    return date("%Y%m%d%H%M%m%S")
 end
 
 local function createVersionNumber(tbl)
@@ -135,18 +200,38 @@ end
 local function setupdb(reset)
     if vfmdb == nil or reset == true then
         vfmdb = {}
-    elseif vfmdb["whitelist"] ~= nil and vfmdb["version"][2] <= 3 then
-        for k, v in pairs(vfmdb["whitelist"]) do
-            if type(k) == "string" then
-                local a,b,c,d = unpack(v)
-                vfmdb["whitelist"][k] = {
-                    ["level"] = a,
-                    ["currentXP"] = b,
-                    ["lastUpdated"] = c,
-                    ["restedXP"] = 0,
-                    ["hasAccepted"] = d,
-                    ["class"] = nil
-                }
+    elseif vfmdb["whitelist"] ~= nil then
+        -- Perform version-to-version updates
+
+        if vfmdb["version"][2] <= 3 then
+            for k, v in pairs(vfmdb["whitelist"]) do
+                if type(k) == "string" then
+                    local a,b,c,d = unpack(v)
+                    vfmdb["whitelist"][k] = {
+                        ["level"] = a,
+                        ["currentXP"] = b,
+                        ["lastUpdate"] = c,
+                        ["restedXP"] = 0,
+                        ["hasAccepted"] = d,
+                        ["class"] = nil
+                    }
+                end
+            end
+        end
+
+        if vfmdb["version"][2] <= 4 then
+            for k, v in pairs(vfmdb["whitelist"]) do
+                if type(k) == "string" then
+                    vfmdb["whitelist"][k].meanXPPerHour = 0
+                end
+            end
+        end
+        
+        if vfmdb["version"][2] <= 4 and vfmdb["version"][3] < 1 then
+            for k, v in pairs(vfmdb["whitelist"]) do
+                if type(k) == "string" then
+                    vfmdb["whitelist"][k].lastUpdate = now()
+                end
             end
         end
     end
@@ -208,7 +293,7 @@ local function versionCheck(n, silent)
     return isNewer
 end
 
-local function sendAcceptRequest(pname)
+local function acceptRequest(pname)
     if VFM_DEBUG then
         vfmPrint(string.format("ACCEPT REQUEST (pname=%q)", pname), "debug")
     end
@@ -252,7 +337,7 @@ function VFMeventHandler(event, ...)
             table.insert(vfmdb["pending"], name);
             vfmPrint("You have a new pending request from '\124c0c5f94ff" .. name .. "\124cffffffff'!")
         else
-            sendAcceptRequest(name)
+            acceptRequest(name)
         end
     elseif message:find("REQUEST_ACCEPTED") then
         vfmPrint("'\124c0c5f94ff" .. name .. "\124cffffffff' added you to their whitelist.");
@@ -275,7 +360,14 @@ function VFMeventHandler(event, ...)
         return
     end
 
-    if message == "GET_PROGRESS" or message == "GET_PROGRESS_BROADCAST" then
+    if (message == "GET_PROGRESS" or message == "GET_PROGRESS_BROADCAST") then
+        -- Make sure we don't spam
+        if vfmdb["whitelist"][name].lastUpdate then
+            if vfmdb["whitelist"][name].lastUpdate + 3 >= now() then
+                return
+            end
+        end
+
         C_ChatInfo.SendAddonMessage("VFMXPaddon", "PROG " .. UnitLevel("player") .. ":" .. UnitXP("player") .. ":" .. (GetXPExhaustion() == nil and 0 or GetXPExhaustion()), "WHISPER", from);
     elseif message:find("^PROG") ~= nil then
         local n_lvl, n_cxp, n_rxp = message:gmatch("PROG (%d+):(%d+):(%d+)", function(x) return x end)()
@@ -292,7 +384,17 @@ function VFMeventHandler(event, ...)
         end
 
         if vfmdb["whitelist"][name].level ~= 0 and n_lvl > vfmdb["whitelist"][name].level then
-            vfmPrint(string.format("%s just reached level %i!", name, n_lvl), "yellow")
+            vfmPrint(string.format("%s has reached level %i!", name, n_lvl), "yellow")
+        end
+
+        if vfmdb["whitelist"][name].level ~= 0 and vfmdb["whitelist"][name].level == n_lvl then
+            local n_xph = (now() - vfmdb["whitelist"][name].lastUpdate) / 3600 * (n_cxp - vfmdb["whitelist"][name].currentXP)
+
+            if now() - vfmdb["whitelist"][name].lastUpdate > 3600 then
+                vfmdb["whitelist"][name].meanXPPerHour = n_xph
+            else
+                vfmdb["whitelist"][name].meanXPPerHour = (19 * vfmdb["whitelist"][name].meanXPPerHour + n_xph) / 20
+            end
         end
 
         vfmdb["whitelist"][name].level      = n_lvl
@@ -328,12 +430,13 @@ local function addToWhitelist(name)
     table.insert(vfmdb["whitelist"], name);
 
     vfmdb["whitelist"][name] = {
-        ["level"]      = 0,
-        ["currentXP"]  = 0,
-        ["restedXP"]   = 0,
-        ["lastUpdate"] = 0,
-        ["class"]      = nil,
-        ["hasAccepted"] = false
+        ["level"]         = 0,
+        ["currentXP"]     = 0,
+        ["restedXP"]      = 0,
+        ["lastUpdate"]    = 0,
+        ["meanXPPerHour"] = 0,
+        ["class"]         = nil,
+        ["hasAccepted"]   = false
     };
 
     vfmPrint("Added '\124c0c5f94ff" .. name .. "\124cffffffff' to whitelist.");
@@ -374,6 +477,11 @@ local function requestDataAll()
     end
 
     last_full_update = GetTime();
+
+    if IsInGuild() then
+        C_ChatInfo.SendAddonMessage("VFMXPaddon", "GET_PROGRESS_BROADCAST", "GUILD");
+    end
+
     C_ChatInfo.SendAddonMessage("VFMXPaddon", "GET_PROGRESS_BROADCAST");
 
     -- Whisper ourselves for debugging purposes
@@ -400,6 +508,65 @@ local function updateTick()
     C_Timer.After(vfmdb["updateFrequency"], updateTick);
 end
 
+local function listDataEntries(filter)
+    local showNew   = (filter == "recent" or filter == "") -- Default
+    local showOld   = (filter == "old")
+    local showEmpty = (filter == "empty")
+
+    local secondsFresh = 3600 * 12
+    local displayCount = 0
+
+    for k, v in ipairs(vfmdb["whitelist"]) do
+        local tDiff = now() - vfmdb["whitelist"][v].lastUpdate
+        local isFresh = tDiff <= secondsFresh
+
+        if filter == "all" or
+           (vfmdb["whitelist"][v].hasAccepted and ((showNew and isFresh) or (showOld and not isFresh))) or
+           (not vfmdb["whitelist"][v].hasAccepted and showEmpty) then
+            local str = ("[%i] %s"):format(tostring(k), createPlayerNameString(v, vfmdb["whitelist"][v].level, vfmdb["whitelist"][v].class))
+
+            displayCount = displayCount + 1
+
+            if not vfmdb["whitelist"][v].hasAccepted then
+                str = str .. " \124caa999999REQUEST PENDING\124cffffffff"
+            end
+
+            print(str)
+
+            if vfmdb["whitelist"][v].level > 0 then
+                local mxp = MAX_XP[vfmdb["whitelist"][v].level];
+                local str = string.format("  XP: %i/%i (%.2f%% done)", vfmdb["whitelist"][v].currentXP, mxp, 100 * vfmdb["whitelist"][v].currentXP / mxp)
+                
+                if (vfmdb["whitelist"][v].restedXP > 0) then
+                    local rxp = 100 * math.min(mxp - vfmdb["whitelist"][v].currentXP, vfmdb["whitelist"][v].restedXP) / (mxp - vfmdb["whitelist"][v].currentXP)
+                    str = str .. string.format(" (rested: %i, %.2f%% of level)", vfmdb["whitelist"][v].restedXP, rxp)
+                end
+                
+                print(str)
+                
+                if vfmdb["whitelist"][v].level < 60 and vfmdb["whitelist"][v].meanXPPerHour > 0 then
+                    local secondsToDing = math.ceil(3600 * mxp / vfmdb["whitelist"][v].meanXPPerHour) - tDiff
+                    
+                    if secondsToDing < 0 then
+                        secondsToDing = 0
+                    end
+
+                    print(string.format("  XP/Hour: %i, %s till level %i", math.ceil(vfmdb["whitelist"][v].meanXPPerHour),
+                            (secondsToDing > 86400 and "more than 1 day" or createTimeString(secondsToDing)),
+                            vfmdb["whitelist"][v].level + 1)
+                    )
+                end
+
+                print("  Updated " .. (vfmdb["whitelist"][v].lastUpdate > 0 and createReadableTimeString(tDiff) .. " ago" or "N/A"))
+            else
+                print("No data.")
+            end
+        end
+    end
+
+    vfmPrint("Displaying " .. displayCount .. " of " .. #vfmdb["whitelist"] .. " entries.")
+end
+
 local function slashHandler(msg, editbox)
     local command, rest = msg:match("^(%S*)%s*(.-)$");
 
@@ -419,36 +586,7 @@ local function slashHandler(msg, editbox)
                 vfmPrint("To \124cdd3e3effreject\124cffffffff a request use '/vfm reject <index>'.");
             end
         else    
-            local i = 0
-            for k, v in ipairs(vfmdb["whitelist"]) do
-                if rest == "all" or
-                   ((rest == "" or rest == "recent") and vfmdb["whitelist"][v].hasAccepted and now() - vfmdb["whitelist"][v].lastUpdate <= 43200) or
-                   (rest == "old" and vfmdb["whitelist"][v].hasAccepted and now() - vfmdb["whitelist"][v].lastUpdate > 43200) or
-                   (rest == "empty" and not vfmdb["whitelist"][v].hasAccepted) then
-                    i = i + 1
-                    local ts = tostring(vfmdb["whitelist"][v].lastUpdate);
-
-                    if ts == "0" then
-                        ts = tostring(now())
-                    end
-
-                    print(playerName(v, vfmdb["whitelist"][v].level, vfmdb["whitelist"][v].class) .. "\124cff999999" .. " [" .. dateString(ts) .. "]" .. (not vfmdb["whitelist"][v].hasAccepted and " (request pending)" or "") .. "\124cffffffff");
-                    if vfmdb["whitelist"][v].level > 0 then
-                        local mxp = MAX_XP[vfmdb["whitelist"][v].level];
-                        local rxp = 100 * math.min(mxp - vfmdb["whitelist"][v].currentXP, vfmdb["whitelist"][v].restedXP) / (mxp - vfmdb["whitelist"][v].currentXP)
-
-                        print(string.format("Experience: %i/%i (%.2f%% done), Rested: %i%s",
-                            vfmdb["whitelist"][v].currentXP, mxp, 100 * vfmdb["whitelist"][v].currentXP / mxp, vfmdb["whitelist"][v].restedXP,
-                            (vfmdb["whitelist"][v].restedXP > 0 and string.format(" (%.2f%% of level)", rxp) or "")
-                            )
-                        )
-                    else
-                        print("No data.");
-                    end
-                end
-            end
-
-            vfmPrint("Displaying " .. i .. " of " .. #vfmdb["whitelist"] .. " entries.")
+            listDataEntries(rest)
         end
     elseif command == "update" then
         if rest ~= "" then
@@ -483,7 +621,7 @@ local function slashHandler(msg, editbox)
         else
             if addToWhitelist(vfmdb["pending"][idx]) then
                 if canCommunicate then
-                    sendAcceptRequest(vfmdb["pending"][idx])
+                    acceptRequest(vfmdb["pending"][idx])
                 end
                 table.remove(vfmdb["pending"], idx);
             end
