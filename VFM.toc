@@ -1,8 +1,8 @@
 ## Interface: 11302
 ## Title: VFM
-## Notes: Keep track of friend's XP
+## Notes: Automated XP sharing addon on a whitelist basis.
 ## Author: VonCarlsson
-## Version: 0.5.1
+## Version: 0.5.3
 ## SavedVariablesPerCharacter: vfmdb
 
 VFM.lua

@@ -1,5 +1,5 @@
 -- Major, Minor, Patch
-local VFM_VERSION = {0, 5, 1};
+local VFM_VERSION = {0, 5, 3};
 local VFM_DEBUG = false;
 local DEFAULT_UPDATE_FREQUENCY = 60
 
@@ -158,15 +158,49 @@ local function normalizeName(str)
     return str;
 end
 
-local function createPlayerNameString(str, level, class)
-    if str:len() == 0 then
-        return "Unknown"
+local function createPlayerNameString(name, level, class)
+    if name:len() == 0 then
+        return "[Unknown]"
     end
 
-    str = normalizeName(str)
-    local conColor = getConColor(level)
+    name = normalizeName(name)
+    local out = "\124Hplayer:" .. name .. "\124h\124cffffffff["
+    
+    if level ~= nil and level ~= 0 then
+        local conColor = getConColor(level)
+        out = out .. "\124cff".. conColor .. level .. "\124cffffffff:"
+    end
+    
+    if class ~= nil then
+        out = out .. "\124c" .. select(4, GetClassColor(class))
+    end
 
-    return  (conColor ~= nil and "\124cff".. conColor or "") .. level .. "\124cffffffff:" .. (class ~= nil and "\124c" .. select(4, GetClassColor(class)) or "") .. str:sub(1, 1):upper() .. str:sub(2) .. "\124cffffffff"
+    return  out .. name:sub(1, 1):upper() .. name:sub(2) .. "\124cffffffff]\124h"
+end
+
+local function numberToDigitGroupedString(n)
+    if n < 999 then
+        return tostring(n)
+    end
+
+    local xpStr = ""
+    local length = #tostring(n)
+    local i = 1
+
+    while i <= length do
+        local a = math.floor(n / (10^(length - i)))
+
+        xpStr = xpStr .. tostring(a)
+
+        if (length - i) % 3 == 0 and i ~= length and i ~= 0 then
+            xpStr = xpStr .. ","
+        end
+
+        n = n - a * (10^(length - i))
+        i = i + 1
+    end
+
+    return xpStr
 end
 
 local function createVersionNumber(tbl)
@@ -178,7 +212,7 @@ local function getCurrentVersion()
 end
 
 local function vfmPrint(msg, color)
-    print("\124cff1d82b2VFM" .. (color == "debug" and " (debug)" or "") .. ": \124cffffffff" .. (CHAT_COLOR[color] ~= nil and "\124cff" .. CHAT_COLOR[color] or "") .. msg);
+    print("\124cffffde00VFM" .. (color == "debug" and " (debug)" or "") .. ": \124cffffffff" .. (CHAT_COLOR[color] ~= nil and "\124cff" .. CHAT_COLOR[color] or "") .. msg);
 end
 
 local function indexOf(tbl, needle)
@@ -191,7 +225,7 @@ local function indexOf(tbl, needle)
     return 0;
 end
 
-local function saveIsSaveVersion()
+local function saveIsSameVersion()
     return vfmdb["version"][1] == VFM_VERSION[1] and
            vfmdb["version"][2] == VFM_VERSION[2] and
            vfmdb["version"][3] == VFM_VERSION[3];
@@ -226,8 +260,8 @@ local function setupdb(reset)
                 end
             end
         end
-        
-        if vfmdb["version"][2] <= 4 and vfmdb["version"][3] < 1 then
+
+        if vfmdb["version"][2] < 4 or (vfmdb["version"][2] == 4 and vfmdb["version"][3] < 1) then
             for k, v in pairs(vfmdb["whitelist"]) do
                 if type(k) == "string" then
                     vfmdb["whitelist"][k].lastUpdate = now()
@@ -240,7 +274,7 @@ local function setupdb(reset)
         vfmdb["hasSetup"] = true
     end
 
-    if vfmdb["version"] == nil or saveIsSaveVersion() == false then
+    if vfmdb["version"] == nil or saveIsSameVersion() == false then
         vfmdb["version"] = VFM_VERSION
     end
 
@@ -311,14 +345,14 @@ function VFMeventHandler(event, ...)
     if prefix ~= "VFMXPaddon" then
         return
     end
-    
+
     if version_check_timeout < GetTime() and message:find("^VER") then
         local n = tonumber(message:match("(%d+)"))
 
         if n == nil then
             return
         end
-        
+
         versionCheck(n, true)
 
         -- Respond if their version is lower than ours
@@ -360,12 +394,12 @@ function VFMeventHandler(event, ...)
         return
     end
 
+    local tDiff = now() - vfmdb["whitelist"][name].lastUpdate
+
     if (message == "GET_PROGRESS" or message == "GET_PROGRESS_BROADCAST") then
         -- Make sure we don't spam
-        if vfmdb["whitelist"][name].lastUpdate then
-            if vfmdb["whitelist"][name].lastUpdate + 3 >= now() then
-                return
-            end
+        if tDiff <= 3 then
+            return
         end
 
         C_ChatInfo.SendAddonMessage("VFMXPaddon", "PROG " .. UnitLevel("player") .. ":" .. UnitXP("player") .. ":" .. (GetXPExhaustion() == nil and 0 or GetXPExhaustion()), "WHISPER", from);
@@ -384,13 +418,19 @@ function VFMeventHandler(event, ...)
         end
 
         if vfmdb["whitelist"][name].level ~= 0 and n_lvl > vfmdb["whitelist"][name].level then
-            vfmPrint(string.format("%s has reached level %i!", name, n_lvl), "yellow")
+            vfmPrint(string.format("%s has reached level %i!", createPlayerNameString(name, vfmdb["whitelist"][name].level, vfmdb["whitelist"][name].class), n_lvl), "lblue")
         end
 
-        if vfmdb["whitelist"][name].level ~= 0 and vfmdb["whitelist"][name].level == n_lvl then
-            local n_xph = (now() - vfmdb["whitelist"][name].lastUpdate) / 3600 * (n_cxp - vfmdb["whitelist"][name].currentXP)
+        if tDiff > 0 and vfmdb["whitelist"][name].level ~= 0 and n_lvl - vfmdb["whitelist"][name].level <= 1 then
+            local n_xph = 3600 / tDiff
 
-            if now() - vfmdb["whitelist"][name].lastUpdate > 3600 then
+            if vfmdb["whitelist"][name].level == n_lvl then
+                n_xph = n_xph * (n_cxp - vfmdb["whitelist"][name].currentXP)
+            else
+                n_xph = n_xph * (n_cxp + MAX_XP[n_lvl - 1] - vfmdb["whitelist"][name].currentXP)
+            end
+
+            if tDiff > 3600 then
                 vfmdb["whitelist"][name].meanXPPerHour = n_xph
             else
                 vfmdb["whitelist"][name].meanXPPerHour = (19 * vfmdb["whitelist"][name].meanXPPerHour + n_xph) / 20
@@ -422,7 +462,7 @@ local function addToWhitelist(name)
     name = normalizeName(name);
 
     if indexOf(vfmdb["whitelist"], name) > 0 then
-        vfmPrint("'\124c0c5f94ff" .. name .. "\124cffffffff' is already whitelisted.");
+        vfmPrint(createPlayerNameString(name) .. "is already whitelisted.");
         return false;
     end
 
@@ -439,7 +479,7 @@ local function addToWhitelist(name)
         ["hasAccepted"]   = false
     };
 
-    vfmPrint("Added '\124c0c5f94ff" .. name .. "\124cffffffff' to whitelist.");
+    vfmPrint("Added " .. createPlayerNameString(name) .. " to whitelist.");
 
     -- Tell the other person we added them
     if canCommunicate then
@@ -453,25 +493,25 @@ local function removeFromWhitelist(name)
     name = normalizeName(name);
 
     if vfmdb["whitelist"][name] == nil then
-        vfmPrint("No player '\124c0c5f94ff" .. name .. "\124cffffffff' on whitelist.");
+        vfmPrint(createPlayerNameString(name) .. " is not on your whitelist.");
         return false;
     end
 
     local idx = indexOf(vfmdb["whitelist"], name);
 
     if idx == 0 then
-        vfmPrint("Could not find index of '\124c0c5f94ff" .. name .. "\124cffffffff'.");
+        vfmPrint("Could not find index of " .. createPlayerNameString(name) .. ".");
         return false;
     end
 
     removeFromPending(name);
-    vfmPrint("Removing '\124c0c5f94ff" .. vfmdb["whitelist"][idx] .. "\124cffffffff' from whitelist.");
+    vfmPrint("Removing " .. createPlayerNameString(name, vfmdb["whitelist"][idx].level, vfmdb["whitelist"][idx].class) .. " from whitelist.");
     vfmdb["whitelist"][name] = nil;
     table.remove(vfmdb["whitelist"], idx);
     return true;
 end
 
-local function requestDataAll()
+local function broadcastProgressRequest()
     if not canCommunicate then
         return false
     end
@@ -492,7 +532,7 @@ local function requestDataAll()
     end
 end
 
-local function updateTick()
+local function performUpdateInterval()
     if not canCommunicate then
         return false
     end
@@ -502,10 +542,11 @@ local function updateTick()
     end
 
     if GetTime() - last_full_update > vfmdb["updateFrequency"] - 1 then
-        requestDataAll();
+        broadcastProgressRequest();
     end
 
-    C_Timer.After(vfmdb["updateFrequency"], updateTick);
+    -- Queue the next update interval
+    C_Timer.After(vfmdb["updateFrequency"], performUpdateInterval);
 end
 
 local function listDataEntries(filter)
@@ -529,42 +570,37 @@ local function listDataEntries(filter)
 
             if not vfmdb["whitelist"][v].hasAccepted then
                 str = str .. " \124caa999999REQUEST PENDING\124cffffffff"
-            end
-
-            print(str)
+            end            
 
             if vfmdb["whitelist"][v].level > 0 then
                 local mxp = MAX_XP[vfmdb["whitelist"][v].level];
-                local str = string.format("  XP: %i/%i (%.2f%% done)", vfmdb["whitelist"][v].currentXP, mxp, 100 * vfmdb["whitelist"][v].currentXP / mxp)
-                
+                str = str .. "\n" .. string.format("  XP: %s/%s (%.2f%% done)", numberToDigitGroupedString(vfmdb["whitelist"][v].currentXP), numberToDigitGroupedString(mxp), 100 * vfmdb["whitelist"][v].currentXP / mxp)
+
                 if (vfmdb["whitelist"][v].restedXP > 0) then
                     local rxp = 100 * math.min(mxp - vfmdb["whitelist"][v].currentXP, vfmdb["whitelist"][v].restedXP) / (mxp - vfmdb["whitelist"][v].currentXP)
-                    str = str .. string.format(" (rested: %i, %.2f%% of level)", vfmdb["whitelist"][v].restedXP, rxp)
+                    str = str .. "\n" .. string.format(" (rested: %s, %.2f%% of level)", numberToDigitGroupedString(vfmdb["whitelist"][v].restedXP), rxp)
                 end
-                
-                print(str)
-                
+
                 if vfmdb["whitelist"][v].level < 60 and vfmdb["whitelist"][v].meanXPPerHour > 0 then
-                    local secondsToDing = math.ceil(3600 * mxp / vfmdb["whitelist"][v].meanXPPerHour) - tDiff
-                    
+                    local secondsToDing = math.ceil(3600 * (mxp - vfmdb["whitelist"][v].currentXP) / vfmdb["whitelist"][v].meanXPPerHour) - tDiff
+
                     if secondsToDing < 0 then
                         secondsToDing = 0
                     end
 
-                    print(string.format("  XP/Hour: %i, %s till level %i", math.ceil(vfmdb["whitelist"][v].meanXPPerHour),
-                            (secondsToDing > 86400 and "more than 1 day" or createTimeString(secondsToDing)),
-                            vfmdb["whitelist"][v].level + 1)
-                    )
+                    str = str .. "\n" .. string.format("  XP/Hour: %s, %s till level %i", numberToDigitGroupedString(math.ceil(vfmdb["whitelist"][v].meanXPPerHour)),
+                            (secondsToDing > 86400 and "more than 1 day" or createTimeString(secondsToDing)), vfmdb["whitelist"][v].level + 1)
                 end
 
-                print("  Updated " .. (vfmdb["whitelist"][v].lastUpdate > 0 and createReadableTimeString(tDiff) .. " ago" or "N/A"))
+                str = str .. "\n  Updated " .. (vfmdb["whitelist"][v].lastUpdate > 0 and createReadableTimeString(tDiff) .. " ago" or "N/A")
+                print(str)
             else
                 print("No data.")
             end
         end
     end
 
-    vfmPrint("Displaying " .. displayCount .. " of " .. #vfmdb["whitelist"] .. " entries.")
+    vfmPrint("Displaying " .. displayCount .. " out of " .. #vfmdb["whitelist"] .. " entries.")
 end
 
 local function slashHandler(msg, editbox)
@@ -585,16 +621,20 @@ local function slashHandler(msg, editbox)
                 vfmPrint("To \124c13a347ffaccept\124cffffffff a request use '/vfm accept <index>', where index is the number next to the player name above. Alternatively, add the player using '/vfm add <player name>'.");
                 vfmPrint("To \124cdd3e3effreject\124cffffffff a request use '/vfm reject <index>'.");
             end
-        else    
+        else
             listDataEntries(rest)
         end
     elseif command == "update" then
         if rest ~= "" then
-            vfmPrint("Requesting update from '\124c0c5f94ff" .. rest .. "\124cffffffff'.")
-            C_ChatInfo.SendAddonMessage("VFMXPaddon", "GET_PROGRESS", "WHISPER", rest);
+            if vfmdb["whitelist"][rest] == nil then
+                vfmPrint(createPlayerNameString(rest) .. " is not on your whitelist.")
+            else
+                vfmPrint("Requesting update from " .. createPlayerNameString(rest, vfmdb["whitelist"][rest].level, vfmdb["whitelist"][rest].class) .. ".")
+                C_ChatInfo.SendAddonMessage("VFMXPaddon", "GET_PROGRESS", "WHISPER", rest);
+            end
         else
             vfmPrint("Broadcasting update request.")
-            requestDataAll();
+            broadcastProgressRequest();
         end
     elseif command == "add" then
         if rest ~= "" then
@@ -637,7 +677,7 @@ local function slashHandler(msg, editbox)
         elseif (#vfmdb["pending"] < idx) then
             vfmPrint("Index out-of-bounds.", "red");
         else
-            vfmPrint("Request from '\124c0c5f94ff" .. vfmdb["pending"][idx] .. "\124cffffffff' rejected.");
+            vfmPrint("Request from " .. createPlayerNameString(vfmdb["pending"][idx]) .. " rejected.");
 
             if canCommunicate then
                 C_ChatInfo.SendAddonMessage("VFMXPaddon", "REQUEST_REJECTED", "WHISPER", vfmdb["pending"][idx]);
@@ -647,9 +687,9 @@ local function slashHandler(msg, editbox)
     elseif command == "debug" then
         VFM_DEBUG = not VFM_DEBUG;
         vfmPrint("Debug mode " .. (VFM_DEBUG and "\124cff13a347enabled\124cffffffff" or "\124cffdd3e3edisabled\124cffffffff"))
-    elseif command == "updatedelay" then
+    elseif command == "updatedelay" or command == "interval" then
         local n = tonumber(rest)
-        
+
         if n == nil or n <= 10 or n >= 600 then
             vfmPrint("Syntax: /vfm updatedelay <number>")
             vfmPrint("Sets the delay between updates in seconds. Must satisfy [10 <= X <= 600]. Default: " .. DEFAULT_UPDATE_FREQUENCY .. ".")
@@ -672,6 +712,7 @@ local function slashHandler(msg, editbox)
         print("\124c0c5f94ffAccept <index>\124cffffffff - Accepts a pending requests and adds the character to your whitelist.");
         print("\124c0c5f94ffReject <index>\124cffffffff - Reject pending requests with index <index>.");
         print("\124c0c5f94ffUpdatedelay <number>\124cffffffff - Sets the time between updates. Default: 60.");
+        print("\124c0c5f94ffInterval\124cffffffff - Macro for 'updatedelay'.");
         print("\124c0c5f94ffDebug\124cffffffff - Toggles debug mode for the current session.");
         print("\124cffffffffNote: VFM will deny any character data queries from characters not currently on your whitelist.");
     end
@@ -682,14 +723,14 @@ LoginFrame:SetScript("OnEvent", function(self, e, ...)
         if vfmdb == nil then
             vfmPrint("First-time setup.")
             setupdb(true)
-        elseif not saveIsSaveVersion() then
+        elseif not saveIsSameVersion() then
             vfmPrint(string.format("Performing non-destructive upgrade from version %i.%i.%i to %i.%i.%i.",
                 vfmdb["version"][1], vfmdb["version"][2], vfmdb["version"][3],
                 VFM_VERSION[1], VFM_VERSION[2], VFM_VERSION[3]))
             setupdb(false)
         end
 
-        updateTick()
+        performUpdateInterval()
         C_ChatInfo.SendAddonMessage("VFMXPaddon", "VER " .. getCurrentVersion())
         LoginFrame:UnregisterEvent("PLAYER_ENTERING_WORLD")
     end
