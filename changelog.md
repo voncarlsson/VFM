@@ -1,5 +1,13 @@
 # Changelog
 
+## TBA, Version 0.5.4
+
+* **List**:
+    * Rested data will now display on the same line as XP.
+    * Percentage done is no longer within parenthesis.
+* **Miscellaneous**:
+    * Added a cooldown of 5 seconds to progress requests per character.
+
 ## 2019-09-15, Version 0.5.3
 
 * **XP/Hour**:

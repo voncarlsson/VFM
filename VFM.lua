@@ -1,7 +1,8 @@
 -- Major, Minor, Patch
-local VFM_VERSION = {0, 5, 3};
+local VFM_VERSION = {0, 5, 4};
 local VFM_DEBUG = false;
 local DEFAULT_UPDATE_FREQUENCY = 60
+local last_sent_progress = {}
 
 -- Set to true if addon prefixes were successfully registered
 local canCommunicate = false
@@ -398,9 +399,11 @@ function VFMeventHandler(event, ...)
 
     if (message == "GET_PROGRESS" or message == "GET_PROGRESS_BROADCAST") then
         -- Make sure we don't spam
-        if tDiff <= 3 then
+        if tDiff <= 5 or (last_sent_progress[from] and last_sent_progress[from] + 5 >= now()) then
             return
         end
+
+        last_sent_progress[from] = now()
 
         C_ChatInfo.SendAddonMessage("VFMXPaddon", "PROG " .. UnitLevel("player") .. ":" .. UnitXP("player") .. ":" .. (GetXPExhaustion() == nil and 0 or GetXPExhaustion()), "WHISPER", from);
     elseif message:find("^PROG") ~= nil then
@@ -574,11 +577,11 @@ local function listDataEntries(filter)
 
             if vfmdb["whitelist"][v].level > 0 then
                 local mxp = MAX_XP[vfmdb["whitelist"][v].level];
-                str = str .. "\n" .. string.format("  XP: %s/%s (%.2f%% done)", numberToDigitGroupedString(vfmdb["whitelist"][v].currentXP), numberToDigitGroupedString(mxp), 100 * vfmdb["whitelist"][v].currentXP / mxp)
+                str = str .. "\n" .. string.format("  XP: %s/%s, %.2f%% done", numberToDigitGroupedString(vfmdb["whitelist"][v].currentXP), numberToDigitGroupedString(mxp), 100 * vfmdb["whitelist"][v].currentXP / mxp)
 
                 if (vfmdb["whitelist"][v].restedXP > 0) then
                     local rxp = 100 * math.min(mxp - vfmdb["whitelist"][v].currentXP, vfmdb["whitelist"][v].restedXP) / (mxp - vfmdb["whitelist"][v].currentXP)
-                    str = str .. "\n" .. string.format(" (rested: %s, %.2f%% of level)", numberToDigitGroupedString(vfmdb["whitelist"][v].restedXP), rxp)
+                    str = str .. string.format(" (rested: %s, %.2f%% of level)", numberToDigitGroupedString(vfmdb["whitelist"][v].restedXP), rxp)
                 end
 
                 if vfmdb["whitelist"][v].level < 60 and vfmdb["whitelist"][v].meanXPPerHour > 0 then

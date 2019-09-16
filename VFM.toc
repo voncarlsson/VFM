@@ -2,7 +2,7 @@
 ## Title: VFM
 ## Notes: Automated XP sharing addon on a whitelist basis.
 ## Author: VonCarlsson
-## Version: 0.5.3
+## Version: 0.5.4
 ## SavedVariablesPerCharacter: vfmdb
 
 VFM.lua
