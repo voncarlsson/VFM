@@ -1,6 +1,6 @@
 # Changelog
 
-## TBA, Version 0.5.4
+## 2019-09-17, Version 0.5.4
 
 * **List**:
     * Rested data will now display on the same line as XP.
